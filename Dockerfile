@@ -5,7 +5,7 @@
 # cross-compiles for the target (GOOS/GOARCH), so multi-arch builds
 # (`docker buildx build --platform linux/amd64,linux/arm64 ...`) don't need
 # QEMU emulation.
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:8ac98ca534ac3f51e1f420a1dd2c15e74c75cfa0f23f3ad27eb5d7236c349a0c AS build
 WORKDIR /src
 RUN apk add --no-cache ca-certificates
 COPY . .

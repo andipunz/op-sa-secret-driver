@@ -173,10 +173,16 @@ make push                # push to your registry (set PLUGIN=registry/name)
 `gofmt`, `go vet`, `go test -race`, `govulncheck`, and a build-only check of the
 plugin image for both `linux/amd64` and `linux/arm64`.
 
-Pushing a tag matching `v*.*.*` (e.g. `v0.2.0`) additionally builds and pushes the
-plugin to Docker Hub as `<version>-amd64` and `<version>-arm64` (Docker managed
-plugins are single-arch — see above). That needs two repository secrets set under
-*Settings → Secrets and variables → Actions*:
+Pushing a tag matching `v*.*.*` (e.g. `v0.2.0`) additionally:
+
+- builds and pushes the plugin to Docker Hub as `<version>-amd64` and `<version>-arm64`
+  (Docker managed plugins are single-arch — see above);
+- creates a GitHub Release with the matching [`CHANGELOG.md`](CHANGELOG.md) section as
+  its notes, attaching the two binaries and a `checksums.txt`. Update the changelog
+  (move `[Unreleased]` into a new `[x.y.z] - YYYY-MM-DD` section) before tagging, or
+  the release notes will be empty.
+
+Both need two repository secrets set under *Settings → Secrets and variables → Actions*:
 
 | Secret | Value |
 |---|---|
@@ -191,6 +197,11 @@ It implements `docker.secretprovider/1.0` directly over `/run/docker/plugins/op.
 (`POST /Plugin.Activate`, `POST /SecretProvider.GetSecret`). The only direct
 third-party dependency is the [1Password Go SDK](https://github.com/1password/onepassword-sdk-go);
 see [`third_party_licenses/`](third_party_licenses/) for its transitive dependencies.
+
+## Contributing
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for how to build, test, and release. See
+[`CHANGELOG.md`](CHANGELOG.md) for what's changed between versions.
 
 ## License
 

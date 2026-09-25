@@ -114,3 +114,52 @@ jobs:
           docker plugin rm -f "$tag" 2>/dev/null || true
           docker plugin create "$tag" build
           docker plugin push "$tag"
+
+      # Kept for the release job below, so release assets are exactly the
+      # binaries that were just pushed as the plugin, not a separate rebuild.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.arch }}
+          path: build/rootfs/op-sa-secret-driver
+          retention-days: 7
+
+  release:
+    needs: publish
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Derive plugin version from the tag
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: binary-*
+          path: dist
+
+      - name: Assemble release assets
+        run: |
+          mkdir -p out
+          mv dist/binary-amd64/op-sa-secret-driver out/op-sa-secret-driver-linux-amd64
+          mv dist/binary-arm64/op-sa-secret-driver out/op-sa-secret-driver-linux-arm64
+          ( cd out && sha256sum -- * > checksums.txt )
+
+      - name: Extract this version's CHANGELOG section
+        run: |
+          awk -v ver="${{ steps.ver.outputs.version }}" '
+            $0 ~ "^## \\[" ver "\\]" { found=1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > release_notes.md
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          body_path: release_notes.md
+          files: |
+            out/op-sa-secret-driver-linux-amd64
+            out/op-sa-secret-driver-linux-arm64
+            out/checksums.txt

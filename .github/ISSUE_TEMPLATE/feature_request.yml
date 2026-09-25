@@ -1,0 +1,18 @@
+name: Feature request
+description: Suggest an improvement or a new label/setting
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The underlying problem, not just the requested solution.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+    validations:
+      required: false

@@ -1,0 +1,44 @@
+name: Bug report
+description: Something isn't working as documented
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Include the daemon log line for the failing request if you have it
+        (`journalctl -u docker | grep op-sa`, or your platform's equivalent) — secret
+        values are never logged, so it's safe to paste.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin tag
+      placeholder: "andipunz/op-sa-secret-driver:0.1.0-amd64"
+    validations:
+      required: true
+
+  - type: input
+    id: docker-version
+    attributes:
+      label: Docker / Swarm version
+      description: Output of `docker version` and `docker info | grep -i swarm`
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Relevant configuration
+      description: Plugin settings (`docker plugin inspect`, with the token redacted)
+        and the secret's labels (`docker secret inspect`).
+      render: shell
