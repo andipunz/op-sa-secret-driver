@@ -24,7 +24,45 @@ docker service create ──► Swarm manager ──► plugin (op.sock) ──�
 
 ## Install
 
-Secrets are resolved **on the Swarm managers**, so do this on **every manager node**:
+Secrets are resolved **on the Swarm managers**, so do this on **every manager node**.
+Create the service account in 1Password (Developer → Service Accounts) with
+**read-only** access to only the vaults Swarm needs.
+
+### Standard: token as a file, not a plugin setting (recommended)
+
+`docker plugin set OP_SERVICE_ACCOUNT_TOKEN=...` stores the token in the plugin's
+settings, which anyone able to run `docker plugin inspect` can read back in plain text.
+Put the token in a file on each manager instead (mode `0400`, owned by root — the same
+way you'd protect any other credential file) and point the plugin at it:
+
+```bash
+docker plugin install --grant-all-permissions --disable andipunz/op-sa-secret-driver:0.1.0
+docker plugin set andipunz/op-sa-secret-driver:0.1.0 token.source=/etc/docker/op-token
+docker plugin set andipunz/op-sa-secret-driver:0.1.0 OP_SERVICE_ACCOUNT_TOKEN_FILE=/run/secrets/op-service-account-token
+docker plugin enable andipunz/op-sa-secret-driver:0.1.0
+```
+
+`/run/secrets/op-service-account-token` is the mount's fixed destination inside the
+plugin; `token.source` is the only thing you set, to the real path on the host. The
+plugin re-reads this file each time it needs a fresh SDK session, so rotating the token
+on disk (e.g. via your config management, or a `docker plugin set token.source=...` to a
+new file) takes effect without restarting the plugin.
+
+#### Why not a Docker/Swarm secret?
+
+You can't `docker secret create` the token and hand it to the plugin the normal way:
+Swarm secrets are mounted into service **tasks** (`/run/secrets/<name>` inside a
+container started by `docker service create`), and the plugin v2 config schema
+(`config.json`) that managed plugins like this one use has no `secrets` field —
+only `env` and `mounts`. It's also circular: this plugin is *how* Swarm secrets get
+their values, so it can't itself depend on the Swarm secrets mechanism to receive its
+own bootstrap credential. The bind-mounted file above is the closest equivalent Docker
+gives a plugin, and is the standard way managed plugins that need a credential (e.g.
+the official Vault plugins) handle this.
+
+### Quick start (token as a plugin setting)
+
+Simpler, but the token is then readable via `docker plugin inspect`:
 
 ```bash
 docker plugin install --grant-all-permissions --disable andipunz/op-sa-secret-driver:0.1.0
@@ -32,36 +70,18 @@ docker plugin set andipunz/op-sa-secret-driver:0.1.0 OP_SERVICE_ACCOUNT_TOKEN=op
 docker plugin enable andipunz/op-sa-secret-driver:0.1.0
 ```
 
-Create the service account in 1Password (Developer → Service Accounts) with
-**read-only** access to only the vaults Swarm needs.
-
 ### Settings (`docker plugin set …`)
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `OP_SERVICE_ACCOUNT_TOKEN` | – | Service account token (required, unless `OP_SERVICE_ACCOUNT_TOKEN_FILE` is used) |
-| `OP_SERVICE_ACCOUNT_TOKEN_FILE` | – | Path to a mounted file holding the token instead; see below |
+| `OP_SERVICE_ACCOUNT_TOKEN` | – | Service account token. Ignored if `OP_SERVICE_ACCOUNT_TOKEN_FILE` is set |
+| `OP_SERVICE_ACCOUNT_TOKEN_FILE` | – | Path to the token file (see "Standard" above); one of the two is required |
 | `OP_DEFAULT_VAULT` | – | Vault used when a secret has neither `ref` nor `vault` |
 | `OP_CACHE_TTL` | `0` | In-memory cache per reference (`60s`, `5m`, …); `0` = always fetch |
 | `OP_TIMEOUT` | `30s` | Timeout per 1Password request |
 | `OP_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARN`, `ERROR` |
 
 The plugin must be disabled to change settings: `docker plugin disable -f …`, then `set`, then `enable`.
-
-### Keeping the token out of `docker plugin inspect` (optional)
-
-By default the token is stored as a plain plugin setting, visible to anyone who can run
-`docker plugin inspect`. To avoid that, bind-mount a host file holding the token instead:
-
-```bash
-docker plugin set andipunz/op-sa-secret-driver:0.1.0 token.source=/etc/docker/op-token
-docker plugin set andipunz/op-sa-secret-driver:0.1.0 OP_SERVICE_ACCOUNT_TOKEN_FILE=/run/secrets/op-service-account-token
-```
-
-`/run/secrets/op-service-account-token` is the mount's fixed destination inside the plugin;
-only `token.source` (the host path) needs to be set. The plugin re-reads this file each time
-it needs a fresh SDK session, so rotating the token on disk takes effect without restarting
-the plugin.
 
 ## Usage
 
@@ -123,12 +143,16 @@ Names containing `/` or `?` can't be composed from labels. Use IDs or a `ref` in
   `secret … not found`. The real reason (bad reference, missing vault access, token
   problems, rate limit) is in the daemon log on the manager, e.g.
   `journalctl -u docker | grep op-sa`. Secret values are never logged.
-- **Token exposure.** By default the token is visible in `docker plugin inspect` to
-  anyone with access to the Docker socket, who is effectively root anyway. Keep the
-  service account read-only and scoped to Swarm vaults, or use
-  `OP_SERVICE_ACCOUNT_TOKEN_FILE` (above) to keep it out of the plugin's settings.
+- **Token exposure.** Anyone with access to the Docker socket is effectively root
+  anyway, but use `OP_SERVICE_ACCOUNT_TOKEN_FILE` (above) rather than the plain
+  `OP_SERVICE_ACCOUNT_TOKEN` setting to avoid also leaking the token to `docker plugin
+  inspect` output, backup tooling, or anyone who greps `dockerd`'s on-disk plugin state.
+  Either way, keep the service account read-only and scoped to Swarm vaults.
 - **Architectures.** Docker managed plugins are single-arch. Build and push one tag per
-  architecture (for example `0.1.0-arm64`) if your managers are mixed.
+  architecture (for example `0.1.0-arm64`) if your managers are mixed — `make plugin
+  PLATFORM=linux/arm64 TAG=0.1.0-arm64` cross-compiles for it from any host, no
+  arm64 machine or QEMU required. The CI pipeline (below) does this for both
+  architectures on every release automatically.
 - **Egress.** Managers need HTTPS to `*.1password.com` (or `*.1password.eu` /
   `*.1password.ca`, depending on your account region). The plugin uses host networking.
 
@@ -142,6 +166,24 @@ make push                # push to your registry (set PLUGIN=registry/name)
 ```
 
 `go.sum` is committed; run `go mod tidy` again only after changing dependencies.
+
+## CI / releasing
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push and PR:
+`gofmt`, `go vet`, `go test -race`, `govulncheck`, and a build-only check of the
+plugin image for both `linux/amd64` and `linux/arm64`.
+
+Pushing a tag matching `v*.*.*` (e.g. `v0.2.0`) additionally builds and pushes the
+plugin to Docker Hub as `<version>-amd64` and `<version>-arm64` (Docker managed
+plugins are single-arch — see above). That needs two repository secrets set under
+*Settings → Secrets and variables → Actions*:
+
+| Secret | Value |
+|---|---|
+| `DOCKERHUB_USERNAME` | Your Docker Hub username or org |
+| `DOCKERHUB_TOKEN` | A [Docker Hub access token](https://hub.docker.com/settings/security) with read/write scope |
+
+Update `PLUGIN_REPO` in the workflow if you're not publishing under `andipunz/`.
 
 ## Protocol
 

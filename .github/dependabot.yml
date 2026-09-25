@@ -1,0 +1,20 @@
+version: 2
+updates:
+  # Go module updates (including the 1Password SDK).
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+
+  # The build stage's base image (golang:X-alpine) — catches Go versions
+  # falling out of upstream security support, like the 1.24 -> 1.26 bump
+  # this project needed.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

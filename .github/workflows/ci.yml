@@ -1,0 +1,116 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*.*.*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: '1.26'
+  PLUGIN_REPO: andipunz/op-sa-secret-driver
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: gofmt
+        run: |
+          fmt_out="$(gofmt -l .)"
+          if [ -n "$fmt_out" ]; then
+            echo "Not gofmt-formatted:"
+            echo "$fmt_out"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test ./... -race
+
+      - name: govulncheck
+        run: |
+          go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  # Validates the Dockerfile/rootfs build on every push and PR; the actual
+  # plugin artifact is only created and pushed by the `publish` job below.
+  build-image:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build rootfs image (amd64 + arm64, not pushed)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          build-args: VERSION=${{ github.sha }}
+          push: false
+
+  # Docker managed plugins are single-arch, so each architecture is created
+  # and pushed as its own tag (e.g. 1.2.3-amd64, 1.2.3-arm64). The Dockerfile
+  # cross-compiles from a native build stage, so this runs on one ubuntu-
+  # latest runner without QEMU emulation for either architecture.
+  publish:
+    needs: build-image
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Derive plugin version from the tag
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build rootfs image for ${{ matrix.arch }}
+        run: |
+          docker buildx build \
+            --platform linux/${{ matrix.arch }} \
+            --build-arg VERSION=${{ steps.ver.outputs.version }} \
+            -t rootfs-build:${{ matrix.arch }} \
+            --load .
+
+      - name: Export rootfs and assemble plugin bundle
+        run: |
+          mkdir -p build/rootfs
+          id=$(docker create rootfs-build:${{ matrix.arch }})
+          docker export "$id" | tar -x -C build/rootfs
+          docker rm -v "$id" >/dev/null
+          cp config.json build/config.json
+
+      - name: Create and push plugin
+        run: |
+          tag="${PLUGIN_REPO}:${{ steps.ver.outputs.version }}-${{ matrix.arch }}"
+          docker plugin rm -f "$tag" 2>/dev/null || true
+          docker plugin create "$tag" build
+          docker plugin push "$tag"

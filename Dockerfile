@@ -1,12 +1,19 @@
 # Builds the plugin rootfs. The Makefile exports this image's filesystem and
 # wraps it with config.json via `docker plugin create`.
-FROM golang:1.24-alpine AS build
+#
+# The build stage always runs on the host's native architecture and
+# cross-compiles for the target (GOOS/GOARCH), so multi-arch builds
+# (`docker buildx build --platform linux/amd64,linux/arm64 ...`) don't need
+# QEMU emulation.
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
 WORKDIR /src
 RUN apk add --no-cache ca-certificates
 COPY . .
 RUN go mod download
 ARG VERSION=dev
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/op-sa-secret-driver . \
+ARG TARGETOS
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/op-sa-secret-driver . \
  && mkdir -p /out/tmp /out/run/docker/plugins
 
 FROM scratch

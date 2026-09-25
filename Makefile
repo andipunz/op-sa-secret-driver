@@ -1,9 +1,11 @@
 # Docker managed plugins are single-arch: build/push one tag per architecture
-# (e.g. TAG=0.1.0-arm64 on an arm64 host) if you run mixed managers.
-PLUGIN  ?= andipunz/op-sa-secret-driver
-VERSION ?= 0.1.0
-TAG     ?= $(VERSION)
-BUILD   := build
+# (e.g. TAG=0.1.0-arm64 PLATFORM=linux/arm64) if you run mixed managers. The
+# Dockerfile cross-compiles, so any PLATFORM builds natively from any host.
+PLUGIN   ?= andipunz/op-sa-secret-driver
+VERSION  ?= 0.1.0
+TAG      ?= $(VERSION)
+PLATFORM ?=
+BUILD    := build
 
 .PHONY: test rootfs plugin enable push clean
 
@@ -12,7 +14,7 @@ test:
 	go test ./...
 
 rootfs:
-	docker build --build-arg VERSION=$(VERSION) -t $(PLUGIN):rootfs .
+	docker build $(if $(PLATFORM),--platform $(PLATFORM)) --build-arg VERSION=$(VERSION) -t $(PLUGIN):rootfs .
 	rm -rf $(BUILD) && mkdir -p $(BUILD)/rootfs
 	id=$$(docker create $(PLUGIN):rootfs) && \
 	  docker export $$id | tar -x -C $(BUILD)/rootfs && \

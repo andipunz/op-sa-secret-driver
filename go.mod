@@ -1,6 +1,6 @@
 module github.com/andipunz/op-sa-secret-driver
 
-go 1.24.0
+go 1.26.0
 
 require github.com/1password/onepassword-sdk-go v0.4.1
 
