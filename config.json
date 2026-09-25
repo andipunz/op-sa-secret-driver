@@ -24,6 +24,14 @@
       "value": ""
     },
     {
+      "name": "OP_SERVICE_ACCOUNT_TOKEN_FILE",
+      "description": "Path to a file holding the token, read instead of OP_SERVICE_ACCOUNT_TOKEN. Keeps the token out of `docker plugin inspect`; requires the \"token\" mount below to be set to a host path",
+      "settable": [
+        "value"
+      ],
+      "value": ""
+    },
+    {
       "name": "OP_DEFAULT_VAULT",
       "description": "Vault used when a secret has neither a ref nor a vault label",
       "settable": [
@@ -56,7 +64,22 @@
       "value": "INFO"
     }
   ],
-  "mounts": [],
+  "mounts": [
+    {
+      "name": "token",
+      "description": "Optional: bind-mount a host file holding the service account token. Set the source with `docker plugin set <plugin> token.source=/host/path/to/token`, and point OP_SERVICE_ACCOUNT_TOKEN_FILE at the destination below",
+      "settable": [
+        "source"
+      ],
+      "source": "",
+      "destination": "/run/secrets/op-service-account-token",
+      "type": "bind",
+      "options": [
+        "rbind",
+        "ro"
+      ]
+    }
+  ],
   "linux": {
     "capabilities": []
   }

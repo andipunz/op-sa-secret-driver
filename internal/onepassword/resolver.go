@@ -16,9 +16,13 @@ const integrationName = "Docker Swarm Secret Driver"
 
 // Resolver resolves op:// references through a lazily created SDK client.
 type Resolver struct {
-	token   string
-	version string
-	log     *slog.Logger
+	// tokenFunc returns the current service account token. It is called
+	// again each time the client is (re)created, so a token backed by a
+	// file (OP_SERVICE_ACCOUNT_TOKEN_FILE) picks up rotation without a
+	// process restart.
+	tokenFunc func() (string, error)
+	version   string
+	log       *slog.Logger
 
 	mu     sync.Mutex
 	client *op.Client
@@ -26,8 +30,8 @@ type Resolver struct {
 
 // NewResolver creates a resolver. The SDK client is created on first use, so
 // the plugin starts (and can be configured) even before a token is set.
-func NewResolver(token, version string, log *slog.Logger) *Resolver {
-	return &Resolver{token: token, version: version, log: log}
+func NewResolver(tokenFunc func() (string, error), version string, log *slog.Logger) *Resolver {
+	return &Resolver{tokenFunc: tokenFunc, version: version, log: log}
 }
 
 // ErrNoToken is returned when no service account token is configured.
@@ -39,11 +43,15 @@ func (r *Resolver) getClient(ctx context.Context) (*op.Client, error) {
 	if r.client != nil {
 		return r.client, nil
 	}
-	if r.token == "" {
+	token, err := r.tokenFunc()
+	if err != nil {
+		return nil, fmt.Errorf("reading service account token: %w", err)
+	}
+	if token == "" {
 		return nil, ErrNoToken
 	}
 	c, err := op.NewClient(ctx,
-		op.WithServiceAccountToken(r.token),
+		op.WithServiceAccountToken(token),
 		op.WithIntegrationInfo(integrationName, r.version),
 	)
 	if err != nil {

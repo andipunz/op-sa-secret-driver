@@ -39,13 +39,29 @@ Create the service account in 1Password (Developer → Service Accounts) with
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `OP_SERVICE_ACCOUNT_TOKEN` | – | Service account token (required) |
+| `OP_SERVICE_ACCOUNT_TOKEN` | – | Service account token (required, unless `OP_SERVICE_ACCOUNT_TOKEN_FILE` is used) |
+| `OP_SERVICE_ACCOUNT_TOKEN_FILE` | – | Path to a mounted file holding the token instead; see below |
 | `OP_DEFAULT_VAULT` | – | Vault used when a secret has neither `ref` nor `vault` |
 | `OP_CACHE_TTL` | `0` | In-memory cache per reference (`60s`, `5m`, …); `0` = always fetch |
 | `OP_TIMEOUT` | `30s` | Timeout per 1Password request |
 | `OP_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARN`, `ERROR` |
 
 The plugin must be disabled to change settings: `docker plugin disable -f …`, then `set`, then `enable`.
+
+### Keeping the token out of `docker plugin inspect` (optional)
+
+By default the token is stored as a plain plugin setting, visible to anyone who can run
+`docker plugin inspect`. To avoid that, bind-mount a host file holding the token instead:
+
+```bash
+docker plugin set andipunz/op-sa-secret-driver:0.1.0 token.source=/etc/docker/op-token
+docker plugin set andipunz/op-sa-secret-driver:0.1.0 OP_SERVICE_ACCOUNT_TOKEN_FILE=/run/secrets/op-service-account-token
+```
+
+`/run/secrets/op-service-account-token` is the mount's fixed destination inside the plugin;
+only `token.source` (the host path) needs to be set. The plugin re-reads this file each time
+it needs a fresh SDK session, so rotating the token on disk takes effect without restarting
+the plugin.
 
 ## Usage
 
@@ -91,7 +107,7 @@ See [`examples/stack.yml`](examples/stack.yml).
 | `encoding` | raw | `base64` decodes the stored text first, for binary files such as keystores |
 | `reuse` | `true` | `false` sets `DoNotReuse`: Swarm calls the driver for every task, bypassing the cache |
 
-Names containing `/` can't be composed from labels. Use IDs or a `ref` instead.
+Names containing `/` or `?` can't be composed from labels. Use IDs or a `ref` instead.
 
 ## Operational notes
 
@@ -99,16 +115,18 @@ Names containing `/` can't be composed from labels. Use IDs or a `ref` instead.
   see a change. Run `docker service update --force <svc>` after rotating in 1Password.
   With `OP_CACHE_TTL` set, wait for the TTL to expire first.
 - **Rate limits.** Service accounts have hourly and daily request quotas that depend on
-  your plan. Scaling a service to many replicas or redeploying big stacks can burn
-  through them. `OP_CACHE_TTL=60s` collapses those bursts. `reuse=false` secrets are
-  never cached.
+  your plan. Concurrent requests for the same reference (e.g. a service scaled to many
+  replicas scheduled at once) always share one 1Password call. Across separate bursts —
+  a redeploy, a rolling update — `OP_CACHE_TTL=60s` collapses those too. `reuse=false`
+  secrets are never cached, but concurrent requests for one are still coalesced.
 - **Debugging.** When resolution fails, `docker service ps` only shows
   `secret … not found`. The real reason (bad reference, missing vault access, token
   problems, rate limit) is in the daemon log on the manager, e.g.
   `journalctl -u docker | grep op-sa`. Secret values are never logged.
-- **Token exposure.** The token is visible in `docker plugin inspect` to anyone with
-  access to the Docker socket, who is effectively root anyway. Keep the service account
-  read-only and scoped to Swarm vaults.
+- **Token exposure.** By default the token is visible in `docker plugin inspect` to
+  anyone with access to the Docker socket, who is effectively root anyway. Keep the
+  service account read-only and scoped to Swarm vaults, or use
+  `OP_SERVICE_ACCOUNT_TOKEN_FILE` (above) to keep it out of the plugin's settings.
 - **Architectures.** Docker managed plugins are single-arch. Build and push one tag per
   architecture (for example `0.1.0-arm64`) if your managers are mixed.
 - **Egress.** Managers need HTTPS to `*.1password.com` (or `*.1password.eu` /

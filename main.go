@@ -35,7 +35,7 @@ func run() error {
 	log := newLogger(os.Getenv("OP_LOG_LEVEL"))
 	slog.SetDefault(log)
 
-	token, err := readToken()
+	tokenFn, err := newTokenFunc()
 	if err != nil {
 		return err
 	}
@@ -47,9 +47,12 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
 	socket := envOr("PLUGIN_SOCKET", defaultSocket)
 
-	resolver := onepassword.NewResolver(token, version, log)
+	resolver := onepassword.NewResolver(tokenFn, version, log)
 	d := driver.New(resolver, driver.Options{
 		DefaultVault: strings.TrimSpace(os.Getenv("OP_DEFAULT_VAULT")),
 		CacheTTL:     cacheTTL,
@@ -88,26 +91,39 @@ func run() error {
 		_ = srv.Shutdown(sctx)
 	}()
 
+	initialToken, _ := tokenFn()
 	log.Info("1Password service account secret driver listening",
-		"version", version, "socket", socket, "cacheTTL", cacheTTL.String(), "tokenSet", token != "")
+		"version", version, "socket", socket, "cacheTTL", cacheTTL.String(), "tokenSet", initialToken != "")
 	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil
 }
 
-// readToken reads the token from OP_SERVICE_ACCOUNT_TOKEN or the file named by
-// OP_SERVICE_ACCOUNT_TOKEN_FILE. An empty token is allowed at startup; requests
-// then fail with a clear message until the token is set.
-func readToken() (string, error) {
+// newTokenFunc returns a function that reads the current service account
+// token, from OP_SERVICE_ACCOUNT_TOKEN or the file named by
+// OP_SERVICE_ACCOUNT_TOKEN_FILE. It is called again every time the resolver
+// (re)creates its SDK client, so a token file that gets rewritten in place
+// (rotation) is picked up without restarting the plugin. An empty token is
+// allowed at startup; requests then fail with a clear message until the
+// token is set. If OP_SERVICE_ACCOUNT_TOKEN_FILE is set, it must be readable
+// immediately so misconfiguration fails fast at startup.
+func newTokenFunc() (func() (string, error), error) {
 	if f := strings.TrimSpace(os.Getenv("OP_SERVICE_ACCOUNT_TOKEN_FILE")); f != "" {
-		b, err := os.ReadFile(f)
-		if err != nil {
-			return "", fmt.Errorf("reading OP_SERVICE_ACCOUNT_TOKEN_FILE: %w", err)
+		read := func() (string, error) {
+			b, err := os.ReadFile(f)
+			if err != nil {
+				return "", fmt.Errorf("reading OP_SERVICE_ACCOUNT_TOKEN_FILE: %w", err)
+			}
+			return strings.TrimSpace(string(b)), nil
 		}
-		return strings.TrimSpace(string(b)), nil
+		if _, err := read(); err != nil {
+			return nil, err
+		}
+		return read, nil
 	}
-	return strings.TrimSpace(os.Getenv("OP_SERVICE_ACCOUNT_TOKEN")), nil
+	token := strings.TrimSpace(os.Getenv("OP_SERVICE_ACCOUNT_TOKEN"))
+	return func() (string, error) { return token, nil }, nil
 }
 
 func durationEnv(name string, def time.Duration) (time.Duration, error) {
@@ -123,7 +139,7 @@ func durationEnv(name string, def time.Duration) (time.Duration, error) {
 }
 
 func envOr(name, def string) string {
-	if v := os.Getenv(name); v != "" {
+	if v := strings.TrimSpace(os.Getenv(name)); v != "" {
 		return v
 	}
 	return def

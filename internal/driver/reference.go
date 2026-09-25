@@ -1,6 +1,7 @@
 package driver
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"net/url"
@@ -44,15 +45,15 @@ func BuildSpec(secretName string, labels map[string]string, defaultVault string)
 		}
 		s.Reference = ref
 	} else {
-		vault := firstNonEmpty(get(LabelVault), defaultVault)
+		vault := cmp.Or(get(LabelVault), defaultVault)
 		if vault == "" {
 			return s, fmt.Errorf("secret %q has no %q label, no %q label and OP_DEFAULT_VAULT is not set", secretName, LabelRef, LabelVault)
 		}
-		item := firstNonEmpty(get(LabelItem), secretName)
+		item := cmp.Or(get(LabelItem), secretName)
 		if item == "" {
 			return s, errors.New("cannot determine item: neither an item label nor a secret name was given")
 		}
-		field := firstNonEmpty(get(LabelField), defaultField)
+		field := cmp.Or(get(LabelField), defaultField)
 
 		parts := []string{vault, item}
 		if sec := get(LabelSection); sec != "" {
@@ -60,8 +61,8 @@ func BuildSpec(secretName string, labels map[string]string, defaultVault string)
 		}
 		parts = append(parts, field)
 		for _, p := range parts {
-			if strings.Contains(p, "/") {
-				return s, fmt.Errorf("vault/item/section/field names containing '/' must be addressed by ID or via the %q label (got %q)", LabelRef, p)
+			if strings.ContainsAny(p, "/?") {
+				return s, fmt.Errorf("vault/item/section/field names containing '/' or '?' must be addressed by ID or via the %q label (got %q)", LabelRef, p)
 			}
 		}
 		s.Reference = "op://" + strings.Join(parts, "/")
@@ -91,13 +92,4 @@ func BuildSpec(secretName string, labels map[string]string, defaultVault string)
 	}
 
 	return s, nil
-}
-
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }

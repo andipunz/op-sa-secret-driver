@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 )
@@ -35,6 +36,7 @@ func TestBuildSpec(t *testing.T) {
 			want: Spec{Reference: "op://Swarm/db_password/password"}},
 		{name: "no vault anywhere", secret: "x", labels: map[string]string{"item": "db"}, wantErr: true},
 		{name: "slash in part", labels: map[string]string{"vault": "Prod", "item": "a/b"}, wantErr: true},
+		{name: "question mark in part", labels: map[string]string{"vault": "Prod", "item": "a?b"}, wantErr: true},
 		{name: "attribute", labels: map[string]string{"ref": "op://Prod/github/one-time password", "attribute": "otp"},
 			want: Spec{Reference: "op://Prod/github/one-time password?attribute=otp"}},
 		{name: "attribute plus query", labels: map[string]string{"ref": "op://Prod/x/y?attribute=otp", "attribute": "otp"}, wantErr: true},
@@ -140,5 +142,53 @@ func TestCache(t *testing.T) {
 	res := d.Get(context.Background(), req)
 	if f.calls != 3 || !res.DoNotReuse {
 		t.Fatalf("expected uncached DoNotReuse call, calls=%d res=%+v", f.calls, res)
+	}
+}
+
+// blockingResolver holds every caller until proceed is closed, so a burst of
+// concurrent requests reliably overlaps instead of racing to complete first.
+type blockingResolver struct {
+	mu      sync.Mutex
+	calls   int
+	proceed chan struct{}
+}
+
+func (b *blockingResolver) Resolve(_ context.Context, ref string) (string, error) {
+	b.mu.Lock()
+	b.calls++
+	b.mu.Unlock()
+	<-b.proceed
+	return "v-" + ref, nil
+}
+
+func TestConcurrentGetCoalesces(t *testing.T) {
+	r := &blockingResolver{proceed: make(chan struct{})}
+	d := New(r, Options{}, quietLogger())
+	req := Request{SecretName: "i", SecretLabels: map[string]string{"ref": "op://V/i/password"}}
+
+	const n = 20
+	var wg sync.WaitGroup
+	results := make([]Response, n)
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results[i] = d.Get(context.Background(), req)
+		}()
+	}
+	time.Sleep(50 * time.Millisecond) // let all goroutines reach the shared wait point
+	close(r.proceed)
+	wg.Wait()
+
+	r.mu.Lock()
+	calls := r.calls
+	r.mu.Unlock()
+	if calls != 1 {
+		t.Fatalf("expected concurrent identical requests to share one resolver call, got %d", calls)
+	}
+	for i, res := range results {
+		if res.Err != "" || string(res.Value) != "v-op://V/i/password" {
+			t.Fatalf("goroutine %d: unexpected result %+v", i, res)
+		}
 	}
 }

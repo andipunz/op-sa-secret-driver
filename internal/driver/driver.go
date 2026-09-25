@@ -52,14 +52,25 @@ type Driver struct {
 	opts     Options
 	log      *slog.Logger
 
-	mu    sync.Mutex
-	cache map[string]cacheEntry
-	now   func() time.Time
+	mu       sync.Mutex
+	cache    map[string]cacheEntry
+	inflight map[string]*inflightCall
+	now      func() time.Time
 }
 
 type cacheEntry struct {
 	value   string
 	expires time.Time
+}
+
+// inflightCall coalesces concurrent resolves of the same reference into one
+// call to the resolver, so a burst of tasks starting at once (e.g. a large
+// service scaled up, or a stack redeploy) doesn't spend one API call and one
+// rate-limit slot per task.
+type inflightCall struct {
+	done  chan struct{}
+	value string
+	err   error
 }
 
 // New creates a Driver.
@@ -72,6 +83,7 @@ func New(r Resolver, opts Options, log *slog.Logger) *Driver {
 		opts:     opts,
 		log:      log,
 		cache:    map[string]cacheEntry{},
+		inflight: map[string]*inflightCall{},
 		now:      time.Now,
 	}
 }
@@ -87,7 +99,7 @@ func (d *Driver) Get(ctx context.Context, req Request) Response {
 	}
 	log = log.With("ref", spec.Reference)
 
-	value, cached, err := d.lookup(ctx, spec)
+	value, cached, err := d.lookup(spec)
 	if err != nil {
 		log.Error("resolving secret failed", "err", err)
 		return Response{Err: "1password: " + err.Error()}
@@ -107,7 +119,7 @@ func (d *Driver) Get(ctx context.Context, req Request) Response {
 	return Response{Value: out, DoNotReuse: spec.DoNotReuse}
 }
 
-func (d *Driver) lookup(ctx context.Context, spec Spec) (string, bool, error) {
+func (d *Driver) lookup(spec Spec) (string, bool, error) {
 	// Never serve per-task secrets from cache: the caller explicitly asked for a fresh value.
 	useCache := d.opts.CacheTTL > 0 && !spec.DoNotReuse
 
@@ -120,9 +132,7 @@ func (d *Driver) lookup(ctx context.Context, spec Spec) (string, bool, error) {
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, d.opts.Timeout)
-	defer cancel()
-	v, err := d.resolver.Resolve(ctx, spec.Reference)
+	v, err := d.resolveShared(spec.Reference)
 	if err != nil {
 		return "", false, err
 	}
@@ -133,6 +143,33 @@ func (d *Driver) lookup(ctx context.Context, spec Spec) (string, bool, error) {
 		d.mu.Unlock()
 	}
 	return v, false, nil
+}
+
+// resolveShared resolves reference through d.resolver, coalescing concurrent
+// callers asking for the same reference into a single call. It is
+// independent of any one caller's request context, since a slow or canceled
+// caller must not abort a fetch that other callers are waiting on.
+func (d *Driver) resolveShared(reference string) (string, error) {
+	d.mu.Lock()
+	if c, ok := d.inflight[reference]; ok {
+		d.mu.Unlock()
+		<-c.done
+		return c.value, c.err
+	}
+	c := &inflightCall{done: make(chan struct{})}
+	d.inflight[reference] = c
+	d.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), d.opts.Timeout)
+	c.value, c.err = d.resolver.Resolve(ctx, reference)
+	cancel()
+
+	d.mu.Lock()
+	delete(d.inflight, reference)
+	d.mu.Unlock()
+	close(c.done)
+
+	return c.value, c.err
 }
 
 // --- Docker plugin HTTP protocol -------------------------------------------
