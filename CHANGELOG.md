@@ -22,7 +22,8 @@ All notable changes to this project are documented here. The format follows
 - Cross-compiling, digest-pinned Dockerfile producing a static binary on a `scratch`
   rootfs for both `linux/amd64` and `linux/arm64` from a single host, no QEMU needed.
 - CI (GitHub Actions): `gofmt`/`go vet`/`go test -race`/`govulncheck` on every push and
-  PR, plus a Docker Hub publish of both architectures on tagged releases.
+  PR, plus a GitHub Container Registry (ghcr.io) publish of both architectures and a
+  GitHub Release on tagged releases.
 - MIT license; third-party license notices for the SDK's transitive dependencies.
 
 [Unreleased]: https://github.com/andipunz/op-sa-secret-driver/compare/v0.1.0...HEAD

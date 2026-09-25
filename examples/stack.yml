@@ -15,14 +15,14 @@ services:
 secrets:
   # Full secret reference, copy it from 1Password ("Copy Secret Reference").
   db_password:
-    driver: andipunz/op-sa-secret-driver:0.1.0
+    driver: ghcr.io/andipunz/op-sa-secret-driver:0.1.0
     labels:
       ref: "op://Swarm-Prod/postgres/password"
 
   # Same thing, composed from labels. "field" defaults to "password",
   # "item" to the secret name and "vault" to OP_DEFAULT_VAULT.
   tls_key:
-    driver: andipunz/op-sa-secret-driver:0.1.0
+    driver: ghcr.io/andipunz/op-sa-secret-driver:0.1.0
     labels:
       vault: Swarm-Prod
       item: wildcard-cert

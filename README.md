@@ -36,10 +36,10 @@ Put the token in a file on each manager instead (mode `0400`, owned by root — 
 way you'd protect any other credential file) and point the plugin at it:
 
 ```bash
-docker plugin install --grant-all-permissions --disable andipunz/op-sa-secret-driver:0.1.0
-docker plugin set andipunz/op-sa-secret-driver:0.1.0 token.source=/etc/docker/op-token
-docker plugin set andipunz/op-sa-secret-driver:0.1.0 OP_SERVICE_ACCOUNT_TOKEN_FILE=/run/secrets/op-service-account-token
-docker plugin enable andipunz/op-sa-secret-driver:0.1.0
+docker plugin install --grant-all-permissions --disable ghcr.io/andipunz/op-sa-secret-driver:0.1.0
+docker plugin set ghcr.io/andipunz/op-sa-secret-driver:0.1.0 token.source=/etc/docker/op-token
+docker plugin set ghcr.io/andipunz/op-sa-secret-driver:0.1.0 OP_SERVICE_ACCOUNT_TOKEN_FILE=/run/secrets/op-service-account-token
+docker plugin enable ghcr.io/andipunz/op-sa-secret-driver:0.1.0
 ```
 
 `/run/secrets/op-service-account-token` is the mount's fixed destination inside the
@@ -65,9 +65,9 @@ the official Vault plugins) handle this.
 Simpler, but the token is then readable via `docker plugin inspect`:
 
 ```bash
-docker plugin install --grant-all-permissions --disable andipunz/op-sa-secret-driver:0.1.0
-docker plugin set andipunz/op-sa-secret-driver:0.1.0 OP_SERVICE_ACCOUNT_TOKEN=ops_eyJ...
-docker plugin enable andipunz/op-sa-secret-driver:0.1.0
+docker plugin install --grant-all-permissions --disable ghcr.io/andipunz/op-sa-secret-driver:0.1.0
+docker plugin set ghcr.io/andipunz/op-sa-secret-driver:0.1.0 OP_SERVICE_ACCOUNT_TOKEN=ops_eyJ...
+docker plugin enable ghcr.io/andipunz/op-sa-secret-driver:0.1.0
 ```
 
 ### Settings (`docker plugin set …`)
@@ -90,7 +90,7 @@ The plugin must be disabled to change settings: `docker plugin disable -f …`, 
 Copy the reference from 1Password (field menu → *Copy Secret Reference*):
 
 ```bash
-docker secret create -d andipunz/op-sa-secret-driver:0.1.0 \
+docker secret create -d ghcr.io/andipunz/op-sa-secret-driver:0.1.0 \
   -l ref="op://Swarm-Prod/postgres/password" db_password
 docker service create --name db --secret db_password postgres:17
 ```
@@ -98,7 +98,7 @@ docker service create --name db --secret db_password postgres:17
 ### Composed from labels
 
 ```bash
-docker secret create -d andipunz/op-sa-secret-driver:0.1.0 \
+docker secret create -d ghcr.io/andipunz/op-sa-secret-driver:0.1.0 \
   -l vault=Swarm-Prod -l item=postgres -l section=admin -l field=username db_user
 ```
 
@@ -107,7 +107,7 @@ docker secret create -d andipunz/op-sa-secret-driver:0.1.0 \
 ```yaml
 secrets:
   db_password:
-    driver: andipunz/op-sa-secret-driver:0.1.0
+    driver: ghcr.io/andipunz/op-sa-secret-driver:0.1.0
     labels:
       ref: "op://Swarm-Prod/postgres/password"
 ```
@@ -175,21 +175,32 @@ plugin image for both `linux/amd64` and `linux/arm64`.
 
 Pushing a tag matching `v*.*.*` (e.g. `v0.2.0`) additionally:
 
-- builds and pushes the plugin to Docker Hub as `<version>-amd64` and `<version>-arm64`
-  (Docker managed plugins are single-arch — see above);
+- builds and pushes the plugin to the [GitHub Container Registry](https://ghcr.io) as
+  `ghcr.io/andipunz/op-sa-secret-driver:<version>-amd64` and `...-arm64` (Docker managed
+  plugins are single-arch — see above);
 - creates a GitHub Release with the matching [`CHANGELOG.md`](CHANGELOG.md) section as
   its notes, attaching the two binaries and a `checksums.txt`. Update the changelog
   (move `[Unreleased]` into a new `[x.y.z] - YYYY-MM-DD` section) before tagging, or
   the release notes will be empty.
 
-Both need two repository secrets set under *Settings → Secrets and variables → Actions*:
+Both use the workflow's own `GITHUB_TOKEN` — no registry secrets to set up. The token
+needs `packages: write`, which the workflow requests explicitly (via `permissions:` on
+the `publish` job), so it works regardless of the repository's default token
+permissions under *Settings → Actions → General → Workflow permissions*.
 
-| Secret | Value |
-|---|---|
-| `DOCKERHUB_USERNAME` | Your Docker Hub username or org |
-| `DOCKERHUB_TOKEN` | A [Docker Hub access token](https://hub.docker.com/settings/security) with read/write scope |
+**Before the first release**, GHCR creates the package as *private* on its first push.
+Docker plugin *installs* (unlike `docker pull`) don't prompt for a registry login, so an
+unauthenticated `docker plugin install` against a private package fails outright. Make
+the package public once it exists: on GitHub, the repo's right sidebar → *Packages* →
+`op-sa-secret-driver` → package *Settings* → *Change visibility*.
 
-Update `PLUGIN_REPO` in the workflow if you're not publishing under `andipunz/`.
+Update `PLUGIN_REPO` in the workflow (and the `andipunz/` references in this README) if
+you're not publishing under that namespace.
+
+Docker plugin distribution uses the standard registry v2 API — verified locally against
+a throwaway `registry:2` container (create → push → reinstall round-tripped cleanly) —
+but this project's own GHCR push hasn't happened yet since it hasn't been tagged. Watch
+the first `publish` run.
 
 ## Protocol
 

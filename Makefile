@@ -1,7 +1,7 @@
 # Docker managed plugins are single-arch: build/push one tag per architecture
 # (e.g. TAG=0.1.0-arm64 PLATFORM=linux/arm64) if you run mixed managers. The
 # Dockerfile cross-compiles, so any PLATFORM builds natively from any host.
-PLUGIN   ?= andipunz/op-sa-secret-driver
+PLUGIN   ?= ghcr.io/andipunz/op-sa-secret-driver
 VERSION  ?= 0.1.0
 TAG      ?= $(VERSION)
 PLATFORM ?=
