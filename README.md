@@ -188,19 +188,12 @@ needs `packages: write`, which the workflow requests explicitly (via `permission
 the `publish` job), so it works regardless of the repository's default token
 permissions under *Settings → Actions → General → Workflow permissions*.
 
-**Before the first release**, GHCR creates the package as *private* on its first push.
-Docker plugin *installs* (unlike `docker pull`) don't prompt for a registry login, so an
-unauthenticated `docker plugin install` against a private package fails outright. Make
-the package public once it exists: on GitHub, the repo's right sidebar → *Packages* →
-`op-sa-secret-driver` → package *Settings* → *Change visibility*.
-
 Update `PLUGIN_REPO` in the workflow (and the `andipunz/` references in this README) if
-you're not publishing under that namespace.
-
-Docker plugin distribution uses the standard registry v2 API — verified locally against
-a throwaway `registry:2` container (create → push → reinstall round-tripped cleanly) —
-but this project's own GHCR push hasn't happened yet since it hasn't been tagged. Watch
-the first `publish` run.
+you're publishing under a different namespace. If your package ends up private (GHCR's
+default depends on account/org settings), `docker plugin install` — unlike `docker
+pull` — doesn't prompt for a registry login, so it fails outright against a private
+package; make it public under the repo's *Packages* sidebar → package *Settings* →
+*Change visibility*.
 
 ## Protocol
 
