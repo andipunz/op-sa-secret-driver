@@ -1,0 +1,63 @@
+{
+  "description": "Docker Swarm secret driver for 1Password Service Accounts (no Connect server required)",
+  "documentation": "https://github.com/andipunz/op-sa-secret-driver",
+  "entrypoint": [
+    "/op-sa-secret-driver"
+  ],
+  "workdir": "/",
+  "interface": {
+    "types": [
+      "docker.secretprovider/1.0"
+    ],
+    "socket": "op.sock"
+  },
+  "network": {
+    "type": "host"
+  },
+  "env": [
+    {
+      "name": "OP_SERVICE_ACCOUNT_TOKEN",
+      "description": "1Password service account token (ops_...)",
+      "settable": [
+        "value"
+      ],
+      "value": ""
+    },
+    {
+      "name": "OP_DEFAULT_VAULT",
+      "description": "Vault used when a secret has neither a ref nor a vault label",
+      "settable": [
+        "value"
+      ],
+      "value": ""
+    },
+    {
+      "name": "OP_CACHE_TTL",
+      "description": "Cache resolved values in memory for this long (e.g. 60s). 0 disables caching",
+      "settable": [
+        "value"
+      ],
+      "value": "0"
+    },
+    {
+      "name": "OP_TIMEOUT",
+      "description": "Timeout for a single request to 1Password",
+      "settable": [
+        "value"
+      ],
+      "value": "30s"
+    },
+    {
+      "name": "OP_LOG_LEVEL",
+      "description": "DEBUG, INFO, WARN or ERROR",
+      "settable": [
+        "value"
+      ],
+      "value": "INFO"
+    }
+  ],
+  "mounts": [],
+  "linux": {
+    "capabilities": []
+  }
+}

@@ -1,0 +1,31 @@
+# docker stack deploy -c examples/stack.yml demo
+#
+# Secrets are resolved by the Swarm managers when a task is scheduled, so the
+# plugin must be installed and enabled on every manager node.
+
+services:
+  app:
+    image: postgres:17
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets:
+      - db_password
+      - tls_key
+
+secrets:
+  # Full secret reference, copy it from 1Password ("Copy Secret Reference").
+  db_password:
+    driver: andipunz/op-sa-secret-driver:0.1.0
+    labels:
+      ref: "op://Swarm-Prod/postgres/password"
+
+  # Same thing, composed from labels. "field" defaults to "password",
+  # "item" to the secret name and "vault" to OP_DEFAULT_VAULT.
+  tls_key:
+    driver: andipunz/op-sa-secret-driver:0.1.0
+    labels:
+      vault: Swarm-Prod
+      item: wildcard-cert
+      section: tls
+      field: key-base64
+      encoding: base64   # stored as base64 text in 1Password, delivered as raw bytes
