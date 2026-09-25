@@ -1,0 +1,28 @@
+{
+  "name": "op-sa-secret-driver",
+  // Same Go version as the Dockerfile's build stage, so `go test`/`go vet`
+  // inside the devcontainer behave exactly like CI. Debian (not the
+  // project's own alpine) because it already ships git/bash/curl/make/gcc.
+  "image": "golang:1.26-bookworm",
+
+  "features": {
+    // Talks to the *host's* Docker daemon (mounts its socket) rather than
+    // running a nested daemon, so `make plugin`, `docker buildx build`, etc.
+    // work exactly as they do outside the container, sharing its build
+    // cache and existing local images.
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
+  },
+
+  "postCreateCommand": "go mod download",
+
+  "customizations": {
+    "vscode": {
+      "extensions": ["golang.go", "ms-azuretools.vscode-docker"],
+      "settings": {
+        "editor.formatOnSave": true,
+        "go.lintTool": "staticcheck",
+        "go.testFlags": ["-race"]
+      }
+    }
+  }
+}

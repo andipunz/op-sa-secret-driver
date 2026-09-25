@@ -2,6 +2,14 @@
 
 Issues and PRs are welcome.
 
+## Devcontainer
+
+Opening this repo in VS Code (with the Dev Containers extension) or GitHub Codespaces
+picks up [`.devcontainer/devcontainer.json`](.devcontainer/devcontainer.json)
+automatically: Go 1.26 (matching the Dockerfile) plus the Docker CLI, talking to your
+host's Docker daemon so `make test`, `make plugin`, and `docker buildx build` all work
+inside it exactly as they do outside.
+
 ## Building and testing
 
 Everything runs in a container, so a local Go install isn't required:

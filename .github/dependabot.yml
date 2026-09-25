@@ -18,3 +18,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
+
+  # Keeps the docker-outside-of-docker feature pinned in .devcontainer/
+  # devcontainer.json current.
+  - package-ecosystem: devcontainers
+    directory: /
+    schedule:
+      interval: weekly
