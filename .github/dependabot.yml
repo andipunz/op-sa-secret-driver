@@ -1,3 +1,4 @@
+# New releases are only proposed after 7 days (same cooldown as uv/pnpm locally)
 version: 2
 updates:
   # Go module updates (including the 1Password SDK).
@@ -5,6 +6,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
 
   # The build stage's base image (golang:X-alpine) — catches Go versions
   # falling out of upstream security support, like the 1.24 -> 1.26 bump
@@ -13,8 +16,12 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
