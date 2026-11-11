@@ -133,7 +133,9 @@ Names containing `/` or `?` can't be composed from labels. Use IDs or a `ref` in
 
 - **Rotation.** Values are fetched when tasks are scheduled. Running containers never
   see a change. Run `docker service update --force <svc>` after rotating in 1Password.
-  With `OP_CACHE_TTL` set, wait for the TTL to expire first.
+  With `OP_CACHE_TTL` set, wait for the TTL to expire first. Or let a tool do it for you
+  via [`/SecretProvider.Versions`](#change-detection-secretproviderversions), e.g.
+  [swarm-gitops](https://github.com/andipunz/swarm-gitops).
 - **Rate limits.** Service accounts have hourly and daily request quotas that depend on
   your plan. Concurrent requests for the same reference (e.g. a service scaled to many
   replicas scheduled at once) always share one 1Password call. Across separate bursts —
@@ -155,6 +157,46 @@ Names containing `/` or `?` can't be composed from labels. Use IDs or a `ref` in
   architectures on every release automatically.
 - **Egress.** Managers need HTTPS to `*.1password.com` (or `*.1password.eu` /
   `*.1password.ca`, depending on your account region). The plugin uses host networking.
+
+## Change detection (`/SecretProvider.Versions`)
+
+Besides Docker's protocol, the plugin socket answers one extra request, which Docker
+itself never sends. A tool running as root on a manager (it needs the socket,
+`/run/docker/plugins/<plugin id>/op.sock`) can ask which version of each secret's
+1Password item is current, without receiving any secret values:
+
+```
+POST /SecretProvider.Versions
+{"Secrets":[{"Name":"app-prod_db_password","Labels":{"ref":"op://Swarm-Prod/postgres/password"}}]}
+
+{"Versions":{"app-prod_db_password":"<item id>@2026-11-11T09:12:44.123Z"},"CacheTTLSeconds":60}
+```
+
+- A version is the item's ID and last change time. Any edit of the item changes it, even
+  of a field the secret doesn't use.
+- One call costs one vault list plus one item list per vault involved, however many
+  secrets it asks about. Polling every couple of minutes stays well within the service
+  account quotas.
+- When a version changes, the plugin drops the cached value of that reference. Other
+  managers keep theirs until `OP_CACHE_TTL` expires, so a caller should wait
+  `CacheTTLSeconds` after noticing a change before restarting tasks.
+- Errors are per secret (`Errors`), e.g. an item that doesn't exist or a title that
+  matches several items.
+
+## Upgrading
+
+Stacks reference the plugin by the name it was installed under, tag included. To run a
+new version without touching them, upgrade in place on every manager:
+
+```bash
+docker plugin disable -f ghcr.io/andipunz/op-sa-secret-driver:0.1.0-amd64
+docker plugin upgrade --grant-all-permissions ghcr.io/andipunz/op-sa-secret-driver:0.1.0-amd64 \
+  ghcr.io/andipunz/op-sa-secret-driver:0.2.0-amd64
+docker plugin enable ghcr.io/andipunz/op-sa-secret-driver:0.1.0-amd64
+```
+
+Settings and mounts are kept. Secrets can't be resolved while the plugin is disabled, so
+upgrade one manager at a time.
 
 ## Build
 

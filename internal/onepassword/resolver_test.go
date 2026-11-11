@@ -13,13 +13,18 @@ import (
 
 func quietLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
 
-// fakeClient is a fake secretsResolver whose behavior for a given call is
+// fakeClient is a fake sdkClient whose behavior for a given call is
 // taken off the front of results; it records every reference it was asked
 // to resolve.
 type fakeClient struct {
 	mu      sync.Mutex
 	results []fakeResult
 	calls   []string
+
+	vaults    []op.VaultOverview
+	vaultsErr error
+	items     map[string][]op.ItemOverview // vault ID -> items
+	listCalls []string                     // "vaults" or the vault ID of an item list
 }
 
 type fakeResult struct {
@@ -39,6 +44,20 @@ func (f *fakeClient) Resolve(_ context.Context, ref string) (string, error) {
 	return r.value, r.err
 }
 
+func (f *fakeClient) ListVaults(context.Context) ([]op.VaultOverview, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.listCalls = append(f.listCalls, "vaults")
+	return f.vaults, f.vaultsErr
+}
+
+func (f *fakeClient) ListItems(_ context.Context, vaultID string) ([]op.ItemOverview, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.listCalls = append(f.listCalls, vaultID)
+	return f.items[vaultID], nil
+}
+
 // newTestResolver builds a Resolver whose token and SDK client are both
 // faked, so tests never touch the real 1Password SDK.
 func newTestResolver(token string, clients ...*fakeClient) (*Resolver, *[]string) {
@@ -46,7 +65,7 @@ func newTestResolver(token string, clients ...*fakeClient) (*Resolver, *[]string
 	i := 0
 	r := NewResolver(func() (string, error) { return token, nil }, "test", quietLogger())
 	r.validate = func(context.Context, string) error { return nil }
-	r.newClient = func(_ context.Context, tok, _ string) (secretsResolver, error) {
+	r.newClient = func(_ context.Context, tok, _ string) (sdkClient, error) {
 		newClientCalls = append(newClientCalls, tok)
 		if i >= len(clients) {
 			return nil, errors.New("newTestResolver: no more clients queued")
@@ -121,7 +140,7 @@ func TestResolveRetriesWithFreshClientAndRereadsToken(t *testing.T) {
 	clients := []*fakeClient{failing, recovered}
 	call := 0
 	var seenTokens []string
-	r.newClient = func(_ context.Context, tok, _ string) (secretsResolver, error) {
+	r.newClient = func(_ context.Context, tok, _ string) (sdkClient, error) {
 		seenTokens = append(seenTokens, tok)
 		c := clients[call]
 		call++
