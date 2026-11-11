@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-11
+
 ### Added
 
 - `POST /SecretProvider.Versions` on the plugin socket: reports the version (item ID and
@@ -33,5 +35,6 @@ All notable changes to this project are documented here. The format follows
   GitHub Release on tagged releases.
 - MIT license; third-party license notices for the SDK's transitive dependencies.
 
-[Unreleased]: https://github.com/andipunz/op-sa-secret-driver/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/andipunz/op-sa-secret-driver/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/andipunz/op-sa-secret-driver/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/andipunz/op-sa-secret-driver/releases/tag/v0.1.0
