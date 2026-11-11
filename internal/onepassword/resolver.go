@@ -14,12 +14,28 @@ import (
 
 const integrationName = "Docker Swarm Secret Driver"
 
-// secretsResolver is the subset of the SDK's op.SecretsAPI this package
-// needs. Narrowing it to an interface lets tests substitute a fake client
-// without going through the real SDK, which loads a WebAssembly runtime and
-// requires a valid token; op.SecretsAPI satisfies it structurally.
-type secretsResolver interface {
+// sdkClient is the subset of the SDK this package needs. Narrowing it to an
+// interface lets tests substitute a fake client without going through the
+// real SDK, which loads a WebAssembly runtime and requires a valid token;
+// sdkAdapter implements it on top of an *op.Client.
+type sdkClient interface {
 	Resolve(ctx context.Context, secretReference string) (string, error)
+	ListVaults(ctx context.Context) ([]op.VaultOverview, error)
+	ListItems(ctx context.Context, vaultID string) ([]op.ItemOverview, error)
+}
+
+type sdkAdapter struct{ c *op.Client }
+
+func (a sdkAdapter) Resolve(ctx context.Context, ref string) (string, error) {
+	return a.c.Secrets().Resolve(ctx, ref)
+}
+
+func (a sdkAdapter) ListVaults(ctx context.Context) ([]op.VaultOverview, error) {
+	return a.c.Vaults().List(ctx)
+}
+
+func (a sdkAdapter) ListItems(ctx context.Context, vaultID string) ([]op.ItemOverview, error) {
+	return a.c.Items().List(ctx, vaultID, op.NewItemListFilterTypeVariantByState(&op.ItemListFilterByStateInner{Active: true}))
 }
 
 // Resolver resolves op:// references through a lazily created SDK client.
@@ -34,11 +50,11 @@ type Resolver struct {
 
 	// newClient and validate default to the real SDK (see NewResolver);
 	// tests override them to avoid depending on it.
-	newClient func(ctx context.Context, token, version string) (secretsResolver, error)
+	newClient func(ctx context.Context, token, version string) (sdkClient, error)
 	validate  func(ctx context.Context, ref string) error
 
 	mu     sync.Mutex
-	client secretsResolver
+	client sdkClient
 }
 
 // NewResolver creates a resolver. The SDK client is created on first use, so
@@ -53,7 +69,7 @@ func NewResolver(tokenFunc func() (string, error), version string, log *slog.Log
 	}
 }
 
-func newSDKClient(ctx context.Context, token, version string) (secretsResolver, error) {
+func newSDKClient(ctx context.Context, token, version string) (sdkClient, error) {
 	c, err := op.NewClient(ctx,
 		op.WithServiceAccountToken(token),
 		op.WithIntegrationInfo(integrationName, version),
@@ -61,13 +77,13 @@ func newSDKClient(ctx context.Context, token, version string) (secretsResolver, 
 	if err != nil {
 		return nil, err
 	}
-	return c.Secrets(), nil
+	return sdkAdapter{c}, nil
 }
 
 // ErrNoToken is returned when no service account token is configured.
 var ErrNoToken = errors.New("no service account token configured: run `docker plugin set <plugin> OP_SERVICE_ACCOUNT_TOKEN=ops_...`")
 
-func (r *Resolver) getClient(ctx context.Context) (secretsResolver, error) {
+func (r *Resolver) getClient(ctx context.Context) (sdkClient, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.client != nil {
@@ -89,7 +105,7 @@ func (r *Resolver) getClient(ctx context.Context) (secretsResolver, error) {
 	return c, nil
 }
 
-func (r *Resolver) reset(bad secretsResolver) {
+func (r *Resolver) reset(bad sdkClient) {
 	r.mu.Lock()
 	if r.client == bad {
 		r.client = nil

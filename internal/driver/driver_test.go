@@ -192,3 +192,68 @@ func TestConcurrentGetCoalesces(t *testing.T) {
 		}
 	}
 }
+
+type versionedResolver struct {
+	fakeResolver
+	versions map[string]string
+}
+
+func (v *versionedResolver) Versions(_ context.Context, refs []string) (map[string]string, map[string]error) {
+	res, errs := map[string]string{}, map[string]error{}
+	for _, ref := range refs {
+		if ver, ok := v.versions[ref]; ok {
+			res[ref] = ver
+		} else {
+			errs[ref] = errors.New("not found")
+		}
+	}
+	return res, errs
+}
+
+func TestVersions(t *testing.T) {
+	r := &versionedResolver{
+		fakeResolver: fakeResolver{values: map[string]string{"op://V/db/password": "old"}},
+		versions:     map[string]string{"op://V/db/password": "i1@1"},
+	}
+	d := New(r, Options{CacheTTL: time.Minute}, quietLogger())
+	h := d.Handler()
+	req := VersionsRequest{Secrets: []VersionsSecret{
+		{Name: "app_db", Labels: map[string]string{"ref": "op://V/db/password"}},
+		{Name: "app_missing", Labels: map[string]string{"ref": "op://V/missing/password"}},
+		{Name: "app_bad", Labels: map[string]string{"ref": "nope"}},
+	}}
+
+	rec := httptest.NewRecorder()
+	b, _ := json.Marshal(req)
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/SecretProvider.Versions", bytes.NewReader(b)))
+	var res VersionsResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &res)
+	if rec.Code != 200 || res.Versions["app_db"] != "i1@1" || res.CacheTTLSeconds != 60 {
+		t.Fatalf("got %d %+v", rec.Code, res)
+	}
+	if res.Errors["app_missing"] == "" || res.Errors["app_bad"] == "" || len(res.Versions) != 1 {
+		t.Fatalf("expected per-secret errors, got %+v", res)
+	}
+
+	// A cached value survives an unchanged version...
+	get := Request{SecretName: "app_db", SecretLabels: map[string]string{"ref": "op://V/db/password"}}
+	d.Get(context.Background(), get)
+	d.Versions(context.Background(), req)
+	r.values["op://V/db/password"] = "new"
+	if got := d.Get(context.Background(), get); string(got.Value) != "old" {
+		t.Fatalf("expected the cached value while the version is unchanged, got %q", got.Value)
+	}
+	// ...and is dropped once the item changed.
+	r.versions["op://V/db/password"] = "i1@2"
+	d.Versions(context.Background(), req)
+	if got := d.Get(context.Background(), get); string(got.Value) != "new" {
+		t.Fatalf("expected a fresh value after the version changed, got %q", got.Value)
+	}
+}
+
+func TestVersionsUnsupported(t *testing.T) {
+	d := New(&fakeResolver{}, Options{}, quietLogger())
+	if res := d.Versions(context.Background(), VersionsRequest{}); res.Err == "" {
+		t.Fatal("expected an error for a resolver without versions")
+	}
+}

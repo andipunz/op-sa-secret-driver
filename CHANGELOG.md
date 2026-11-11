@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `POST /SecretProvider.Versions` on the plugin socket: reports the version (item ID and
+  last change) of each secret's 1Password item without resolving values, so tools like
+  swarm-gitops can restart services when a secret changes. Costs one vault list plus one
+  item list per vault per call. A changed version drops that reference's cached value.
+
 ## [0.1.0] - 2026-09-25
 
 ### Added
